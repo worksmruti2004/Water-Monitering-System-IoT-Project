@@ -283,7 +283,12 @@ Smart-Water-Quality-Monitor/
 
 Developed as part of an embedded IoT project for real-time water quality analysis.
 
-- **By:** *(Your Name Here)*
+**BY :-**<br>
+**Smruti Ranjan Rout**<br>
+**Electronics and Communication Engineering Student**<br>
+**Embedded Systems & IoT Enthusiast**
+
+*Feel free to ⭐ star this repo if you found it helpful!*
 
 ---
 
