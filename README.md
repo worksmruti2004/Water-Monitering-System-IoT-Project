@@ -29,7 +29,7 @@ Designed for applications such as:
 - 🧪 **TDS Measurement** — Estimates dissolved solids (ppm) via cubic polynomial formula (40-sample average)
 - 🌫️ **Turbidity Detection** — Measures water clarity in NTU via voltage-based formula
 - 🔬 **pH Sensing** — Converts analog voltage to pH value (0–14 scale) with 20-sample averaging
-- 📏 **Water Depth Display** — Shows current water depth in cm on OLED
+- 📏 **Water Level / Depth** — Live distance measurement via waterproof ultrasonic sensor (JSN-SR04T / A02YYUW) on GPIO 5 & 18, with calibration factor applied
 - 🖥️ **OLED Live Display** — All readings shown sequentially on SSD1306 128×64 screen
 - 🔁 **Auto Refresh** — Cycles through all parameters continuously
 - 📡 **Serial Logging** — Full data output at 115200 baud
@@ -46,7 +46,8 @@ Designed for applications such as:
   TDS Sensor    ──►│  GPIO 32 (ADC)            │
   Turbidity     ──►│  GPIO 35 (ADC)            │──► OLED Display (I2C)
   pH Sensor     ──►│  GPIO 34 (ADC)            │    SDA → GPIO 21
-                    │                          │    SCL → GPIO 22
+  Ultrasonic     ◄─│  GPIO 5  (TRIG)           │    SCL → GPIO 22
+  (JSN-SR04T)   ──►│  GPIO 18 (ECHO)           │
                     └──────────┬───────────────┘
                                │
                                ▼
@@ -68,6 +69,7 @@ Designed for applications such as:
 | TDS Sensor Module | 1 | Measures dissolved solids (ppm) |
 | Turbidity Sensor Module | 1 | Measures water clarity (NTU) |
 | pH Sensor Module | 1 | Measures acidity / alkalinity |
+| Waterproof Ultrasonic Sensor (JSN-SR04T or A02YYUW) | 1 | Measures water level / depth (cm) |
 | SSD1306 OLED (128×64) | 1 | Live data display via I2C |
 | 4.7kΩ Resistor | 1 | Pull-up for DS18B20 data line |
 | Jumper Wires | — | Connections |
@@ -84,10 +86,14 @@ Designed for applications such as:
 | TDS Sensor | GPIO 32 | ADC (Analog) |
 | Turbidity Sensor | GPIO 35 | ADC (Analog) |
 | pH Sensor | GPIO 34 | ADC (Analog) |
+| Ultrasonic TRIG (JSN-SR04T / A02YYUW) | GPIO 5 | Digital Output |
+| Ultrasonic ECHO (JSN-SR04T / A02YYUW) | GPIO 18 | Digital Input |
 | OLED SDA | GPIO 21 | I2C |
 | OLED SCL | GPIO 22 | I2C |
 
 > ⚠️ **GPIO 34 & 35 are input-only pins** — do not use them as output. All analog sensors must be powered with **3.3V** (ESP32 ADC is 3.3V max — not 5V tolerant). ADC resolution is set to **12-bit** with **11dB attenuation** in code.
+
+> 📡 **Ultrasonic Sensor — Use Waterproof Variants Only:** Standard HC-SR04 modules are not suitable for water level sensing. Use waterproof models such as the **JSN-SR04T** or **A02YYUW**, which are sealed for wet/submerged-surface environments. These sensors work by emitting a 40kHz pulse from the TRIG pin and measuring the echo return time on the ECHO pin. Pressure transducers are an alternative for direct depth measurement in closed tanks.
 
 ---
 
@@ -159,7 +165,12 @@ Loop Starts
    NTU = (1.67 − Voltage) × 300    [clamped to 0 minimum]
     │
     ▼
-3. Water Level → Fixed depth value displayed (4.5 cm)
+3. Water Level → Waterproof Ultrasonic Sensor (JSN-SR04T / A02YYUW)
+   TRIG (GPIO 5) → 10µs HIGH pulse → sensor fires 40kHz burst
+   ECHO (GPIO 18) → pulseIn() measures return time in microseconds
+   Raw distance (cm) = duration × 0.0343 / 2
+   Corrected distance (cm) = raw × 0.65   [calibration factor]
+   Result printed to Serial Monitor every 500ms
     │
     ▼
 4. DS18B20 → requestTemperatures() → getTempCByIndex(0)
@@ -206,9 +217,20 @@ Formula: `NTU = (1.67 − Voltage) × 300`
 | 21 – 50 | DIRTY |
 | > 50 | VERY DIRTY |
 
-### 📏 Water Level
+### 📏 Water Level — Ultrasonic Sensor (TRIG: GPIO 5 | ECHO: GPIO 18)
 
-Water depth is displayed as a fixed value of **4.5 cm** in the current firmware version. Live sensor integration is planned for a future update.
+The system uses a **waterproof ultrasonic sensor** (JSN-SR04T or A02YYUW) to measure water surface distance in real time. These sealed sensors are specifically designed for wet environments and detect surfaces via reflected 40kHz sound pulses — unlike standard HC-SR04 modules which are not water-safe.
+
+**Distance Formula:**
+```
+Raw Distance (cm)       = duration × 0.0343 / 2
+Corrected Distance (cm) = Raw Distance × 0.65
+```
+The `0.65` calibration factor compensates for sensor mounting angle, container geometry, or measured offset — adjust this value to match your physical setup.
+
+**Reading interval:** 500ms
+
+**Alternative:** Pressure transducers can be used instead of ultrasonic sensors for direct depth measurement in sealed or turbulent tanks where acoustic reflections may be unreliable.
 
 ### 🌡️ Temperature (DS18B20, GPIO 4)
 
@@ -235,7 +257,7 @@ Formula: `pH = 7 + ((2.50 − Voltage) × 3.5)`
 ```
 TDS: 342.00 ppm -> ACCEPT
 Voltage: 1.45 V  Turbidity: 6.00 NTU -> ACCEPTABLE
-Water Level: 4.5 cm Depth
+Corrected Distance: 4.5 cm
 Temperature: 28.50 C
 pH Value: 7.20 -> GOOD
 ```
@@ -250,7 +272,7 @@ Each parameter is shown full-screen for 1 second in this order:
 |---|---|
 | 1 | **TDS** — value in ppm + quality label |
 | 2 | **TURBIDITY** — value in NTU + quality label |
-| 3 | **WATER LEVEL** — depth in cm |
+| 3 | **WATER LEVEL** — corrected distance in cm (ultrasonic) |
 | 4 | **TEMP** — temperature in °C |
 | 5 | **PH** — value + status label |
 
@@ -279,13 +301,16 @@ Smart-Water-Quality-Monitor/
 - pH readings are approximate — **calibrate** with pH 4, 7, and 10 buffer solutions and adjust the formula constants for your specific module
 - OLED I2C address is set to `0x3C` — change in code if your display uses `0x3D`
 - TDS averaging uses **40 samples**, pH uses **20 samples** — increase for better noise rejection in electrically noisy environments
-- Water level is currently a **hardcoded constant** (4.5 cm) — connect a real depth sensor and update the `waterDepth` variable to enable live readings
+- Use **waterproof ultrasonic sensors only** (JSN-SR04T or A02YYUW) — standard HC-SR04 modules will be damaged by moisture and water splash
+- The **calibration factor of 0.65** in the distance formula is specific to the current physical setup — adjust it to match your sensor's mounting height and tank geometry
+- Ensure the ultrasonic sensor beam path is **clear and unobstructed** — foam, turbulence, or angled surfaces can cause inaccurate echo readings; pressure transducers are a more reliable alternative in such conditions
 
 ---
 
 ## 🔮 Future Improvements
 
-- [ ] Connect live water level / ultrasonic depth sensor on GPIO 33
+- [ ] Add water level classification (LOW / MEDIUM / HIGH) based on distance thresholds
+- [ ] Multi-sample averaging for ultrasonic readings to reduce noise
 - [ ] Add Wi-Fi and push data to Blynk / ThingSpeak / Firebase
 - [ ] Alert notifications (buzzer / LED) when readings go out of safe range
 - [ ] Store historical data on a MicroSD card
