@@ -1,4 +1,4 @@
-# Water-Monitering-System-IoT-Project
+# Water-Monitoring-System-IoT-Project
 # 💧 Smart Water Quality Monitoring System
 
 ![ESP32](https://img.shields.io/badge/ESP32-IoT-blue?style=for-the-badge&logo=espressif)
@@ -6,13 +6,13 @@
 ![OLED](https://img.shields.io/badge/OLED-SSD1306-orange?style=for-the-badge)
 ![Sensors](https://img.shields.io/badge/Sensors-5%20Parameters-green?style=for-the-badge)
 
-**Real-time water quality analysis using ESP32 — measures Temperature, TDS, Turbidity, pH, and Water Level with live OLED display output.**
+**Real-time water quality analysis using ESP32 — measures Temperature, TDS, Turbidity, pH, and Water Depth with live OLED display output.**
 
 ---
 
 ## 📌 Overview
 
-The **Smart Water Quality Monitoring System** is an embedded IoT project that continuously measures five critical water parameters using an ESP32 microcontroller. Sensor readings are displayed live on a **128×64 OLED screen** and logged to the Serial Monitor every 2 seconds.
+The **Smart Water Quality Monitoring System** is an embedded IoT project that continuously measures five critical water parameters using an ESP32 microcontroller. Sensor readings are displayed live on a **128×64 OLED screen** and logged to the Serial Monitor.
 
 Designed for applications such as:
 - 🚰 Drinking water safety checks
@@ -26,12 +26,12 @@ Designed for applications such as:
 ## ✨ Features
 
 - 🌡️ **Temperature Sensing** — Waterproof DS18B20 with OneWire protocol
-- 🧪 **TDS Measurement** — Estimates dissolved solids (ppm) via polynomial formula
-- 🌫️ **Turbidity Detection** — Measures water clarity in NTU
-- 🔬 **pH Sensing** — Converts analog voltage to pH value (0–14 scale)
-- 📏 **Water Level Detection** — Classifies level as LOW / MEDIUM / HIGH
-- 🖥️ **OLED Live Display** — All readings shown on SSD1306 128×64 screen
-- 🔁 **Auto Refresh** — Updates every 2 seconds continuously
+- 🧪 **TDS Measurement** — Estimates dissolved solids (ppm) via cubic polynomial formula (40-sample average)
+- 🌫️ **Turbidity Detection** — Measures water clarity in NTU via voltage-based formula
+- 🔬 **pH Sensing** — Converts analog voltage to pH value (0–14 scale) with 20-sample averaging
+- 📏 **Water Depth Display** — Shows current water depth in cm on OLED
+- 🖥️ **OLED Live Display** — All readings shown sequentially on SSD1306 128×64 screen
+- 🔁 **Auto Refresh** — Cycles through all parameters continuously
 - 📡 **Serial Logging** — Full data output at 115200 baud
 
 ---
@@ -43,18 +43,17 @@ Designed for applications such as:
                     │        ESP32 MCU          │
                     │                          │
   DS18B20       ──►│  GPIO 4  (OneWire)        │
-  TDS Sensor    ──►│  GPIO 34 (ADC)            │
+  TDS Sensor    ──►│  GPIO 32 (ADC)            │
   Turbidity     ──►│  GPIO 35 (ADC)            │──► OLED Display (I2C)
-  pH Sensor     ──►│  GPIO 32 (ADC)            │    SDA → GPIO 21
-  Water Level   ──►│  GPIO 33 (ADC)            │    SCL → GPIO 22
-                    │                          │
+  pH Sensor     ──►│  GPIO 34 (ADC)            │    SDA → GPIO 21
+                    │                          │    SCL → GPIO 22
                     └──────────┬───────────────┘
                                │
                                ▼
                     ┌──────────────────────────┐
                     │   SSD1306 OLED Display    │
-                    │  Temp | TDS | Turbidity  │
-                    │  pH   | Water Level       │
+                    │  TDS | Turbidity | Level  │
+                    │  Temp | pH                │
                     └──────────────────────────┘
 ```
 
@@ -69,7 +68,6 @@ Designed for applications such as:
 | TDS Sensor Module | 1 | Measures dissolved solids (ppm) |
 | Turbidity Sensor Module | 1 | Measures water clarity (NTU) |
 | pH Sensor Module | 1 | Measures acidity / alkalinity |
-| Water Level Sensor | 1 | Detects Low / Medium / High water level |
 | SSD1306 OLED (128×64) | 1 | Live data display via I2C |
 | 4.7kΩ Resistor | 1 | Pull-up for DS18B20 data line |
 | Jumper Wires | — | Connections |
@@ -83,14 +81,13 @@ Designed for applications such as:
 | Sensor / Module | ESP32 GPIO Pin | Interface |
 |---|---|---|
 | DS18B20 (Temperature) | GPIO 4 | OneWire (Digital) |
-| TDS Sensor | GPIO 34 | ADC (Analog) |
+| TDS Sensor | GPIO 32 | ADC (Analog) |
 | Turbidity Sensor | GPIO 35 | ADC (Analog) |
-| pH Sensor | GPIO 32 | ADC (Analog) |
-| Water Level Sensor | GPIO 33 | ADC (Analog) |
+| pH Sensor | GPIO 34 | ADC (Analog) |
 | OLED SDA | GPIO 21 | I2C |
 | OLED SCL | GPIO 22 | I2C |
 
-> ⚠️ **GPIO 34 & 35 are input-only pins** — do not use them as output. All analog sensors must be powered with **3.3V** (ESP32 ADC is 3.3V max — not 5V tolerant).
+> ⚠️ **GPIO 34 & 35 are input-only pins** — do not use them as output. All analog sensors must be powered with **3.3V** (ESP32 ADC is 3.3V max — not 5V tolerant). ADC resolution is set to **12-bit** with **11dB attenuation** in code.
 
 ---
 
@@ -149,97 +146,113 @@ Install via Arduino IDE → **Sketch → Include Library → Manage Libraries**:
 ## 🔄 How It Works
 
 ```
-1. Loop Starts Every 2 Seconds
-          │
-          ▼
-2. DS18B20 → requestTemperatures() → getTempCByIndex(0)
-          │
-          ▼
-3. TDS Sensor → analogRead(GPIO34)
-   Voltage = raw × (3.3 / 4095)
+Loop Starts
+    │
+    ▼
+1. TDS Sensor → 40 analogRead samples from GPIO 32 (10ms apart)
+   Average ADC → Voltage = avg × (3.3 / 4095)
    TDS (ppm) = (133.42×V³ − 255.86×V² + 857.39×V) × 0.5
-          │
-          ▼
-4. Turbidity Sensor → analogRead(GPIO35)
-   NTU = map(raw, 0, 4095, 3000, 0)
-          │
-          ▼
-5. pH Sensor → analogRead(GPIO32)
-   Voltage = raw × (3.3 / 4095)
-   pH = 7 + ((2.5 − Voltage) / 0.18)
-          │
-          ▼
-6. Water Level → analogRead(GPIO33)
-   ┌─────────────────────────────────────┐
-   │  raw < 1000   →  "LOW"             │
-   │  1000 – 2500  →  "MEDIUM"          │
-   │  > 2500       →  "HIGH"            │
-   └─────────────────────────────────────┘
-          │
-          ▼
-7. Print All Values → Serial Monitor
-          │
-          ▼
-8. Render All Values → SSD1306 OLED (I2C 0x3C)
-          │
-          ▼
-9. delay(2000) → Loop Repeats
+    │
+    ▼
+2. Turbidity Sensor → 40 analogRead samples from GPIO 35 (10ms apart)
+   Average ADC → Voltage = avg × (3.3 / 4095)
+   NTU = (1.67 − Voltage) × 300    [clamped to 0 minimum]
+    │
+    ▼
+3. Water Level → Fixed depth value displayed (4.5 cm)
+    │
+    ▼
+4. DS18B20 → requestTemperatures() → getTempCByIndex(0)
+    │
+    ▼
+5. pH Sensor → 20 analogRead samples from GPIO 34 (10ms apart)
+   Average ADC → Voltage = avg × (3.3 / 4095)
+   pH = 7 + ((2.50 − Voltage) × 3.5)    [clamped 0–14]
+    │
+    ▼
+6. Each parameter printed to Serial Monitor
+   Each parameter rendered on SSD1306 OLED (I2C 0x3C)
+   1-second delay between each parameter display
+    │
+    ▼
+Loop Repeats
 ```
 
 ---
 
-## 📊 Sensor Measurement Ranges
+## 📊 Sensor Measurement Ranges & Quality Labels
 
-### 🌡️ Temperature (DS18B20)
-| Range | Meaning |
-|---|---|
-| 0–15 °C | Cold water |
-| 20–30 °C | Normal / room temperature |
-| > 35 °C | Warm / potentially unsafe |
+### 🧪 TDS — Total Dissolved Solids (GPIO 32, 40 samples)
 
-### 🧪 TDS — Total Dissolved Solids
-| Range (ppm) | Water Quality |
+| Range (ppm) | Quality Label |
 |---|---|
-| 0–50 | Excellent — Near pure |
-| 50–150 | Good — Safe drinking water |
-| 150–500 | Fair — Acceptable |
-| 500+ | Poor — Needs treatment |
+| 0 – 50 | PURE |
+| 51 – 150 | EXCELLENT |
+| 151 – 300 | GOOD |
+| 301 – 500 | ACCEPT |
+| 501 – 900 | POOR |
+| > 900 | BAD |
 
-### 🌫️ Turbidity
-| Range (NTU) | Water Clarity |
-|---|---|
-| 0–1 | Crystal clear |
-| 1–5 | Acceptable |
-| 5–50 | Cloudy — Filter recommended |
-| 50+ | Very turbid — Unsafe |
+### 🌫️ Turbidity (GPIO 35, 40 samples)
 
-### 🔬 pH
-| Range | Classification |
+Formula: `NTU = (1.67 − Voltage) × 300`
+
+| Range (NTU) | Quality Label |
 |---|---|
-| < 6.5 | Acidic |
-| 6.5–7.5 | Neutral (ideal drinking water) |
-| 7.5–8.5 | Mildly Alkaline |
-| > 8.5 | Highly Alkaline |
+| 0 – 1 | VERY CLEAR |
+| 2 – 5 | GOOD |
+| 6 – 10 | ACCEPTABLE |
+| 11 – 20 | CLOUDY |
+| 21 – 50 | DIRTY |
+| > 50 | VERY DIRTY |
 
 ### 📏 Water Level
-| ADC Raw Value | Status |
+
+Water depth is displayed as a fixed value of **4.5 cm** in the current firmware version. Live sensor integration is planned for a future update.
+
+### 🌡️ Temperature (DS18B20, GPIO 4)
+
+Raw temperature in °C is displayed directly — no quality classification applied.
+
+### 🔬 pH (GPIO 34, 20 samples)
+
+Formula: `pH = 7 + ((2.50 − Voltage) × 3.5)`
+
+| Range | Classification |
 |---|---|
-| < 1000 | 🔴 LOW |
-| 1000 – 2500 | 🟡 MEDIUM |
-| > 2500 | 🟢 HIGH |
+| 0.0 – 2.9 | VERY ACIDIC |
+| 3.0 – 4.9 | ACIDIC |
+| 5.0 – 6.4 | SLIGHT ACID |
+| 6.5 – 7.5 | GOOD |
+| 7.6 – 8.5 | SLIGHT ALK |
+| 8.6 – 10.0 | ALKALINE |
+| > 10.0 | VERY ALK |
 
 ---
 
 ## 🖥️ Serial Monitor Output Example
 
 ```
------ WATER MONITORING -----
+TDS: 342.00 ppm -> ACCEPT
+Voltage: 1.45 V  Turbidity: 6.00 NTU -> ACCEPTABLE
+Water Level: 4.5 cm Depth
 Temperature: 28.50 C
-TDS: 342.00 ppm
-Turbidity: 120 NTU
-pH: 7.2
-Water Level: MEDIUM
+pH Value: 7.20 -> GOOD
 ```
+
+---
+
+## 🖥️ OLED Display Sequence
+
+Each parameter is shown full-screen for 1 second in this order:
+
+| Screen | Content Shown |
+|---|---|
+| 1 | **TDS** — value in ppm + quality label |
+| 2 | **TURBIDITY** — value in NTU + quality label |
+| 3 | **WATER LEVEL** — depth in cm |
+| 4 | **TEMP** — temperature in °C |
+| 5 | **PH** — value + status label |
 
 ---
 
@@ -262,19 +275,22 @@ Smart-Water-Quality-Monitor/
 
 - All analog sensor modules must use **3.3V** — ESP32 ADC pins are **not 5V tolerant**
 - DS18B20 requires a **4.7kΩ pull-up resistor** between DATA and VCC
-- pH readings are approximate — **calibrate** with pH 4, 7, and 10 buffer solutions for accuracy
-- OLED I2C address defaults to `0x3C` — change in code if your display uses `0x3D`
-- For better stability, consider averaging **5–10 ADC samples** per sensor per cycle to reduce noise
+- ADC is configured for **12-bit resolution** (`analogReadResolution(12)`) and **11dB attenuation** (`analogSetAttenuation(ADC_11db)`) — do not change these without recalculating sensor formulas
+- pH readings are approximate — **calibrate** with pH 4, 7, and 10 buffer solutions and adjust the formula constants for your specific module
+- OLED I2C address is set to `0x3C` — change in code if your display uses `0x3D`
+- TDS averaging uses **40 samples**, pH uses **20 samples** — increase for better noise rejection in electrically noisy environments
+- Water level is currently a **hardcoded constant** (4.5 cm) — connect a real depth sensor and update the `waterDepth` variable to enable live readings
 
 ---
 
 ## 🔮 Future Improvements
 
+- [ ] Connect live water level / ultrasonic depth sensor on GPIO 33
 - [ ] Add Wi-Fi and push data to Blynk / ThingSpeak / Firebase
 - [ ] Alert notifications (buzzer / LED) when readings go out of safe range
 - [ ] Store historical data on a MicroSD card
 - [ ] Battery-powered + waterproof enclosure for field deployment
-- [ ] Multi-sample ADC averaging for improved accuracy
+- [ ] Temperature compensation for TDS readings
 - [ ] Mobile dashboard via MQTT protocol
 
 ---
@@ -283,9 +299,9 @@ Smart-Water-Quality-Monitor/
 
 Developed as part of an embedded IoT project for real-time water quality analysis.
 
-**BY :-**<br>
-**Smruti Ranjan Rout**<br>
-**Electronics and Communication Engineering Student**<br>
+**BY :-**  
+**Smruti Ranjan Rout**  
+**Electronics and Communication Engineering Student**  
 **Embedded Systems & IoT Enthusiast**
 
 *Feel free to ⭐ star this repo if you found it helpful!*
